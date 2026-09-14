@@ -1,0 +1,147 @@
+import re
+import math
+from collections import Counter, defaultdict 
+from typing import START, END
+import numpy as np
+from src.tokenizer import tokenize
+
+#step 2: Add start/end symbols
+
+def with_boundaries(sentence, n=2):
+    '''Tokenize a sentence and add start/end symbols for an order-n model.'''
+    tokens = tokenize(sentence)
+    return [START] * (n - 1) + tokens + [END]
+
+#step 3: Build n-gram counts
+def build_ngram_counts(sentences, n):
+    next_counts = defaultdict(Counter)
+    history_counts = Counter()
+    vocab = set()
+    
+    for sentence in sentences:
+        tokens = with_boundaries(sentence, n=n)
+        vocab.update(tokens)  # Collect all tokens in the sentence
+        
+        for position in range(n - 1, len(tokens)):
+            history = tuple(tokens[position - n + 1 : position])
+            word = tokens[position]
+            next_counts[history][word] += 1
+            history_counts[history] += 1
+            
+    return next_counts, history_counts, vocab
+
+#step 4: Define the CountLanguageModel class
+class CountLanguageModel:
+    def __init__(self, max_order):
+        self.max_order = max_order
+        self.next_counts = {}
+        self.history_counts = {}
+        self.vocabulary = set()
+
+    def fit(self, sentences):
+        for order in range(1, self.max_order + 1):
+            next_counts, history_counts, vocab = build_ngram_counts(sentences, order)
+            self.next_counts[order] = next_counts
+            self.history_counts[order] = history_counts
+            self.vocabulary.update(vocab)
+        return self
+
+    def history_for(self, history_tokens, order):
+        if order == 1:
+            return ()
+        padded = [START] * max(0, order - 1 - len(history_tokens)) + list(history_tokens)
+        return tuple(padded[-(order - 1):])
+
+    def probability(self, history_tokens, word, order, add_k=0.0):
+        history = self.history_for(history_tokens, order)
+        numerator = self.next_counts[order][history][word] + add_k
+        
+        # Denominator adds (add_k * V) to account for all possible vocabulary extensions
+        denominator = (
+            self.history_counts[order][history]
+            + add_k * len(self.vocabulary)
+        )
+        return numerator / denominator if denominator > 0 else (1.0 / len(self.vocabulary) if len(self.vocabulary) > 0 else 0.0)
+
+#step 5: Define the perplexity function
+def perplexity(model, sentences, add_k=0.1):
+    log_prob_sum = 0.0
+    token_count = 0
+    for sentence in sentences:
+        tokens = with_boundaries(sentence, n=model.max_order)
+        for position in range(model.max_order - 1, len(tokens)):
+            history_tokens = tokens[position - model.max_order + 1 : position]
+            word = tokens[position]
+            prob = model.interpolated_probability(history_tokens, word, weights={order: 1/model.max_order for order in range(1, model.max_order + 1)}, add_k=add_k)
+            log_prob_sum += -1 * math.log2(prob) if prob > 0 else 0
+            token_count += 1 
+    return (2 ** (log_prob_sum / token_count)) if token_count > 0 else float('inf')
+
+#step 6: function for evaluating perplexity and cross-entropy on a given dataset  
+
+def evaluate_model(model, sentences, weights, add_k):
+    """Calculates cross-entropy loss and perplexity on a given dataset."""
+    log_prob_sum = 0.0
+    token_count = 0
+    
+    for sentence in sentences:
+        tokens = with_boundaries(sentence, n=model.max_order)
+        for position in range(model.max_order - 1, len(tokens)):
+            history_tokens = tokens[position - model.max_order + 1 : position]
+            word = tokens[position]
+            
+            prob = model.interpolated_probability(
+                history_tokens, word, weights=weights, add_k=add_k
+            )
+            
+            # Guard against zero probability using a small epsilon fallback
+            prob = max(prob, 1e-12)
+            log_prob_sum += math.log2(prob)
+            token_count += 1
+
+    if token_count == 0:
+        return float('inf'), float('inf')
+
+    avg_cross_entropy = -log_prob_sum / token_count
+    perplexity = 2 ** avg_cross_entropy
+    return avg_cross_entropy, perplexity
+
+
+# step 7: Load Datasets
+with open("data/processed/train.txt", "r", encoding="utf-8") as f:
+    train_sentences = f.readlines()
+with open("data/processed/dev.txt", "r", encoding="utf-8") as f:
+    dev_sentences = f.readlines()
+with open("data/processed/test.txt", "r", encoding="utf-8") as f:
+    test_sentences = f.readlines()
+
+# step 8: Fit Model Parameters ONLY on Training Data
+max_order = 3
+model = CountLanguageModel(max_order=max_order)
+model.fit(train_sentences)
+
+# Equal weights for interpolation across orders 1..N
+weights = {order: 1.0 / max_order for order in range(1, max_order + 1)}
+
+# step 9: Hyperparameter Tuning on Validation (Dev) Set
+candidate_k_values = [0.001, 0.01, 0.05, 0.1, 0.5, 1.0]
+best_k = None
+best_dev_pp = float('inf')
+
+print("--- Tuning Hyperparameters on Dev Set ---")
+for k in candidate_k_values:
+    _, dev_pp = evaluate_model(model, dev_sentences, weights=weights, add_k=k)
+    print(f"add_k = {k:<5} | Dev Perplexity: {dev_pp:.4f}")
+    
+    if dev_pp < best_dev_pp:
+        best_dev_pp = dev_pp
+        best_k = k
+
+print(f"\nBest add_k found: {best_k} (Dev Perplexity: {best_dev_pp:.4f})")
+
+# step 10: Final Evaluation on Test Set using Best Hyperparameters
+test_ce, test_pp = evaluate_model(model, test_sentences, weights=weights, add_k=best_k)
+
+print("\n--- Final Test Set Results ---")
+print(f"Test Cross-Entropy: {test_ce:.4f} bits/token")
+print(f"Test Perplexity:    {test_pp:.4f}")
