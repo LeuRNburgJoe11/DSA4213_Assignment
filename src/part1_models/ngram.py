@@ -77,10 +77,10 @@ class CountLanguageModel:
       return numerator / denominator if denominator > 0 else 0.0
 
     def interpolated_probability(self, history_tokens, word, weights, add_k=0.0):
-    prob = 0.0
-    for order, w in weights.items():
+      prob = 0.0
+      for order, w in weights.items():
         prob += w * self.probability(history_tokens, word, order, add_k=add_k)
-    return prob
+      return prob
 
 #step 5: function for evaluating perplexity and cross-entropy on a given dataset  
 def evaluate_model(model, sentences, weights, add_k):
@@ -114,7 +114,7 @@ def evaluate_model(model, sentences, weights, add_k):
 # step 7: Load Datasets
 with open("data/processed/train.txt", "r", encoding="utf-8") as f:
     train_sentences = f.readlines()
-with open("data/processed/dev.txt", "r", encoding="utf-8") as f:
+with open("data/processed/valid.txt", "r", encoding="utf-8") as f:
     dev_sentences = f.readlines()
 with open("data/processed/test.txt", "r", encoding="utf-8") as f:
     test_sentences = f.readlines()
