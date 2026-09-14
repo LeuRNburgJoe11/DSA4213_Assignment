@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from src import evaluate
-from src.tokenizer import tokenize
+from part1_models.tokenizer import tokenize
 
 
 PAD_TOKEN = "<pad>"

@@ -1,12 +1,20 @@
 import re
 import math
 from collections import Counter, defaultdict 
-from typing import START, END
 import numpy as np
-from src.tokenizer import tokenize
+#from part1_models.tokenizer import tokenize
 
+
+#step 1: Tokenization function defined
+TOKEN_PATTERN = re.compile(r"[a-z]+(?:'[a-z]+)?|[.,!?;:]")
+
+def tokenize(text):
+    '''Convert a string to a lowercase sequence of word/punctuation tokens.'''
+    normalized = text.lower().replace("’", "'")
+    return TOKEN_PATTERN.findall(normalized)
 #step 2: Add start/end symbols
-
+START = "<s>"
+END = "</s>"
 def with_boundaries(sentence, n=2):
     '''Tokenize a sentence and add start/end symbols for an order-n model.'''
     tokens = tokenize(sentence)
@@ -29,6 +37,7 @@ def build_ngram_counts(sentences, n):
             history_counts[history] += 1
             
     return next_counts, history_counts, vocab
+
 
 #step 4: Define the CountLanguageModel class
 class CountLanguageModel:
@@ -53,32 +62,27 @@ class CountLanguageModel:
         return tuple(padded[-(order - 1):])
 
     def probability(self, history_tokens, word, order, add_k=0.0):
-        history = self.history_for(history_tokens, order)
-        numerator = self.next_counts[order][history][word] + add_k
-        
-        # Denominator adds (add_k * V) to account for all possible vocabulary extensions
-        denominator = (
-            self.history_counts[order][history]
-            + add_k * len(self.vocabulary)
-        )
-        return numerator / denominator if denominator > 0 else (1.0 / len(self.vocabulary) if len(self.vocabulary) > 0 else 0.0)
+      history = self.history_for(history_tokens, order)
+    
+      # Unsmoothed N-gram logic (add_k == 0)
+      if add_k == 0.0:
+        history_count = self.history_counts[order][history]
+        if history_count == 0:
+            return 0.0
+        return self.next_counts[order][history][word] / history_count
 
-#step 5: Define the perplexity function
-def perplexity(model, sentences, add_k=0.1):
-    log_prob_sum = 0.0
-    token_count = 0
-    for sentence in sentences:
-        tokens = with_boundaries(sentence, n=model.max_order)
-        for position in range(model.max_order - 1, len(tokens)):
-            history_tokens = tokens[position - model.max_order + 1 : position]
-            word = tokens[position]
-            prob = model.interpolated_probability(history_tokens, word, weights={order: 1/model.max_order for order in range(1, model.max_order + 1)}, add_k=add_k)
-            log_prob_sum += -1 * math.log2(prob) if prob > 0 else 0
-            token_count += 1 
-    return (2 ** (log_prob_sum / token_count)) if token_count > 0 else float('inf')
+    # Add-k Smoothed N-gram logic (add_k > 0)
+      numerator = self.next_counts[order][history][word] + add_k
+      denominator = self.history_counts[order][history] + (add_k * len(self.vocabulary))
+      return numerator / denominator if denominator > 0 else 0.0
 
-#step 6: function for evaluating perplexity and cross-entropy on a given dataset  
+    def interpolated_probability(self, history_tokens, word, weights, add_k=0.0):
+    prob = 0.0
+    for order, w in weights.items():
+        prob += w * self.probability(history_tokens, word, order, add_k=add_k)
+    return prob
 
+#step 5: function for evaluating perplexity and cross-entropy on a given dataset  
 def evaluate_model(model, sentences, weights, add_k):
     """Calculates cross-entropy loss and perplexity on a given dataset."""
     log_prob_sum = 0.0
