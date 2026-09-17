@@ -1,12 +1,15 @@
 import argparse
+import copy
+import random
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from src import evaluate
-from part1_models.tokenizer import tokenize
+from src.part1_models.tokenizer import tokenize
 
 
 PAD_TOKEN = "<pad>"
@@ -64,9 +67,24 @@ def make_data_loader(tokens, token_to_id, sequence_length, batch_size, shuffle):
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
 
-def train_model(model, train_loader, valid_loader, criterion, optimizer, device, epochs):
+def set_seed(seed):
+    """Make data ordering and model initialization reproducible."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def train_model(
+    model, train_loader, valid_loader, criterion, optimizer, device, epochs, patience
+):
     """Train the model and report validation cross-entropy/perplexity per epoch."""
     model.to(device)
+    best_valid_ppl = float("inf")
+    best_state = None
+    epochs_without_improvement = 0
+
     for epoch in range(1, epochs + 1):
         model.train()
         total_loss = 0.0
@@ -92,11 +110,26 @@ def train_model(model, train_loader, valid_loader, criterion, optimizer, device,
             f"valid CE: {valid_bits:.4f} bits/token | valid PPL: {valid_ppl:.4f}"
         )
 
+        if valid_ppl < best_valid_ppl:
+            best_valid_ppl = valid_ppl
+            best_state = copy.deepcopy(model.state_dict())
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+            if epochs_without_improvement >= patience:
+                print(f"Early stopping after {epoch} epochs.")
+                break
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    return best_valid_ppl
+
 
 def main():
     parser = argparse.ArgumentParser(description="Train a vanilla RNN language model.")
     parser.add_argument("--train", default="data/processed/train.txt")
     parser.add_argument("--valid", default="data/processed/valid.txt")
+    parser.add_argument("--test", default="data/processed/test.txt")
     parser.add_argument("--checkpoint", default="results/rnn.pt")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=64)
@@ -104,16 +137,23 @@ def main():
     parser.add_argument("--embed-dim", type=int, default=128)
     parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
+    parser.add_argument("--patience", type=int, default=2)
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
+    set_seed(args.seed)
     train_tokens = read_tokens(args.train)
     valid_tokens = read_tokens(args.valid)
+    test_tokens = read_tokens(args.test)
     token_to_id, vocabulary = build_vocabulary(train_tokens)
     train_loader = make_data_loader(
         train_tokens, token_to_id, args.sequence_length, args.batch_size, shuffle=True
     )
     valid_loader = make_data_loader(
         valid_tokens, token_to_id, args.sequence_length, args.batch_size, shuffle=False
+    )
+    test_loader = make_data_loader(
+        test_tokens, token_to_id, args.sequence_length, args.batch_size, shuffle=False
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -122,7 +162,23 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
     print(f"Vocabulary: {len(vocabulary):,} tokens | device: {device}")
-    train_model(model, train_loader, valid_loader, criterion, optimizer, device, args.epochs)
+    best_valid_ppl = train_model(
+        model,
+        train_loader,
+        valid_loader,
+        criterion,
+        optimizer,
+        device,
+        args.epochs,
+        args.patience,
+    )
+    test_bits, test_ppl = evaluate.evaluate_neural_model(
+        model, test_loader, criterion, device
+    )
+    print(
+        f"Best valid PPL: {best_valid_ppl:.4f} | "
+        f"test CE: {test_bits:.4f} bits/token | test PPL: {test_ppl:.4f}"
+    )
 
     checkpoint_path = Path(args.checkpoint)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
