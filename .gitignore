@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+
+.venv/
+venv/
+env/
+
+.ipynb_checkpoints/
+
+# Model checkpoints (large binaries) — keep results/metrics.csv, logs, generations.md
+*.pt
+*.pth
