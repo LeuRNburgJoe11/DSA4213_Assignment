@@ -1,6 +1,7 @@
 import argparse
 import copy
 import random
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -36,10 +37,20 @@ def read_tokens(path):
     return tokenize(text)
 
 
-def build_vocabulary(tokens):
-    """Build a vocabulary using training tokens only."""
+def build_vocabulary(tokens, max_vocab_size=30000):
+    """Build a vocabulary from the max_vocab_size most frequent training tokens.
+
+    Without a cap, every distinct token (including one-off typos, numbers,
+    and rare names) gets its own row in the embedding table and the output
+    softmax layer — on a real corpus this can balloon to 100k+ words and
+    make training/inference far slower than the model size would suggest.
+    Anything outside the cap falls back to UNK_TOKEN, matching how the
+    pre-tokenized "word-level" WikiText releases are built.
+    """
+    counts = Counter(tokens)
+    most_common = [token for token, _ in counts.most_common(max_vocab_size)]
     vocabulary = [PAD_TOKEN, UNK_TOKEN]
-    vocabulary.extend(sorted(set(tokens) - {PAD_TOKEN, UNK_TOKEN}))
+    vocabulary.extend(sorted(set(most_common) - {PAD_TOKEN, UNK_TOKEN}))
     token_to_id = {token: index for index, token in enumerate(vocabulary)}
     return token_to_id, vocabulary
 
@@ -139,13 +150,14 @@ def main():
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--patience", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--max-vocab-size", type=int, default=30000)
     args = parser.parse_args()
 
     set_seed(args.seed)
     train_tokens = read_tokens(args.train)
     valid_tokens = read_tokens(args.valid)
     test_tokens = read_tokens(args.test)
-    token_to_id, vocabulary = build_vocabulary(train_tokens)
+    token_to_id, vocabulary = build_vocabulary(train_tokens, max_vocab_size=args.max_vocab_size)
     train_loader = make_data_loader(
         train_tokens, token_to_id, args.sequence_length, args.batch_size, shuffle=True
     )

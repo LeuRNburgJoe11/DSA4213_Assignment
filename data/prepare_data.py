@@ -1,21 +1,24 @@
 """
-prepare_data.py — WikiText-103 loading and preprocessing sketch
+prepare_data.py — WikiText-2 loading and preprocessing sketch
 for DSA4213 Assignment 1 (Parts I & II).
 
 This produces a cleaned, concatenated text stream plus train/val/test
-splits ready for tokenization. Adjust SUBSET_FRACTION to keep the
-project computationally reasonable.
+splits ready for tokenization. WikiText-2 shares the same validation/test
+splits as WikiText-103 but has a much smaller train split (~2M tokens
+vs. ~103M), so the full train split is already a computationally
+reasonable size on its own — no subsetting needed by default. Adjust
+SUBSET_FRACTION if you want an even smaller corpus.
 """
 
 import re
 from datasets import load_dataset
 
-SUBSET_FRACTION = 0.05  # e.g. use ~5% of train for a manageable corpus size
+SUBSET_FRACTION = 1.0  # use the full WikiText-2 train split
 
 
 def load_raw():
-    """Load WikiText-103 (raw, unprocessed tokens) from the Hub."""
-    ds = load_dataset("Salesforce/wikitext", "wikitext-103-raw-v1")
+    """Load WikiText-2 (raw, unprocessed tokens) from the Hub."""
+    ds = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1")
     return ds  # DatasetDict with 'train', 'validation', 'test'
 
 
