@@ -2,8 +2,6 @@
 
 Code for Parts I–III of the DSA4213 individual assignment: language-model comparison (Part I), embedding ablation (Part II) and downstream classification (Part III).
 
-> Items marked **TODO** still need details that aren't in this repo.
-
 ## Environment
 
 - Python 3.12 (Google Colab runtime 2026.07)
@@ -18,7 +16,7 @@ No API keys, Kaggle tokens or Hugging Face tokens are needed or included. Colab 
 |---|---|---|
 | WikiText-2 (raw), CC BY-SA 3.0 | Parts I, II | Hugging Face [`Salesforce/wikitext`](https://huggingface.co/datasets/Salesforce/wikitext), config `wikitext-2-raw-v1`. Run `python data/prepare_data.py`, or let Cell 1 of the Part I notebook download it. Both write `data/processed/{train,valid,test}.txt`. |
 | GloVe 6B, 100-d | Part II | `gensim.downloader.load("glove-wiki-gigaword-100")` in Part II Cell 5. This downloads about 128 MB to `~/gensim-data` the first time it runs. It is not bundled. |
-| Rotten Tomatoes critic reviews | Part III | Kaggle: **TODO: dataset URL** (the `review_type` = Fresh/Rotten column suggests [Rotten Tomatoes movies and critic reviews](https://www.kaggle.com/datasets/stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset)). Steps: (1) sign in to Kaggle and download the reviews CSV from the dataset page, or run `kaggle datasets download -d <owner>/<dataset>` with your own `~/.kaggle/kaggle.json`; (2) put it in `data/raw/`; (3) build `data/prepared/rt_{train,valid,test}.csv` (see Part III preprocessing). The CSVs are not redistributed here, and `.gitignore` excludes `data/raw/`, `data/prepared/` and `kaggle.json`. |
+| Rotten Tomatoes critic reviews | Part III | Kaggle: [stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset](https://www.kaggle.com/datasets/stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset). Sign in to Kaggle, download the dataset (or run `kaggle datasets download -d stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset` with your own `~/.kaggle/kaggle.json`), and unzip `rotten_tomatoes_critic_reviews.csv` into `data/raw/`. Then run `Part3_data_prep_RottenTomatoes.ipynb` to build `data/prepared/rt_{train,valid,test}.csv`. None of these CSVs are redistributed here; `.gitignore` excludes `data/raw/`, `data/prepared/` and `kaggle.json`. |
 
 ### Preprocessing (Parts I and II)
 
@@ -34,8 +32,21 @@ Resulting sizes: 2,124,061 train / 221,501 valid / 249,435 test tokens.
 
 ### Preprocessing (Part III)
 
-1. **TODO:** the step that builds `data/prepared/rt_{train,valid,test}.csv` from the Kaggle file isn't in the repo. It needs to be documented: the source columns, the filtering, class balancing and split seed. The prepared files have columns `text` and `label` (1 = Fresh, 0 = Rotten). They hold 20,000 train / 2,500 val / 2,500 test reviews, each split 50% positive.
-2. Reviews are tokenized with the Part I tokenizer and vocabulary (loaded from `results/lstm.pt`) and encoded as `<s>` + tokens, with no `</s>`. They're truncated to 32 tokens and right-padded. Reviews with no tokens are dropped (none were). OOV rate is about 8.5%, and 25% of reviews are truncated.
+`Part3_data_prep_RottenTomatoes.ipynb` (CPU, deterministic given `SEED = 42`):
+
+1. **Load:** `rotten_tomatoes_critic_reviews.csv` (1,130,017 rows), columns `rotten_tomatoes_link` → `movie_id`, `review_content` → `text`, `review_type` → `label` (Fresh = 1, Rotten = 0).
+2. **Clean:** drop rows missing movie, text or label. Strip `[Full review in …]` tags and collapse whitespace. Drop reviews with fewer than 4 tokens (Part I tokenizer). This leaves 1,058,330 rows.
+3. **Deduplicate:** texts are normalised to lowercase alphanumerics. Keep one copy of each repeated text, and drop every copy whose labels conflict (700 rows). This leaves 944,430 rows.
+4. **WikiText overlap filter:** drop a review if at least 50% of its 8-grams appear in WikiText-2 train, or if it shares any 13-gram with it. This catches critic quotes copied into Wikipedia articles (64 removed; listed in `overlap_removed.csv`).
+5. **Split by movie:** shuffle movies with seed 42 and assign 80 / 10 / 10% of them to train / valid / test. No movie appears in two splits.
+6. **Cap and balance:** within each split, keep at most 10 reviews per movie, then sample equal Fresh/Rotten counts up to 20,000 / 2,500 / 2,500 reviews. The sampling seeds are 42 (train), 43 (valid) and 44 (test).
+7. **Checks:** assert that no movie and no normalised text is shared across splits. Write the `rt_*.csv` files (`movie_id, label, n_tokens, text`) and `prep_stats.json`.
+
+> **Reproducibility note:** the reported splits were built locally against a WikiText-2 `train.txt` with 17,556 non-empty lines and 2,031,623 tokens. That isn't the Part I file, which gives 2,124,061 tokens including `<s>`/`</s>`. Most likely the local copy had its `= Heading =` lines removed. Only step 4 (the overlap filter) reads this file, so a re-run against Part I's `data/processed/train.txt` could flag a slightly different set of reviews. Because sampling depends on which rows survive, that would change the splits. To reproduce the reported splits exactly, compare `overlap_flagged_removed` in `prep_stats.json` with 64.
+
+Part III then does the following:
+
+1. Reviews are tokenized with the Part I tokenizer and vocabulary (loaded from `results/lstm.pt`) and encoded as `<s>` + tokens, with no `</s>`. They're truncated to 32 tokens and right-padded. Reviews with no tokens are dropped (none were). OOV rate is about 8.5%, and 25% of reviews are truncated.
 
 ## How to run
 
@@ -44,6 +55,7 @@ Run the notebooks in order in the same Google Drive folder. Each one mounts Driv
 | Step | Notebook | Needs |
 |---|---|---|
 | Part I | `Part1_models_Colab.ipynb` | internet (downloads WikiText-2) |
+| Part III data | `Part3_data_prep_RottenTomatoes.ipynb` (CPU, any order after Part I) | `data/raw/rotten_tomatoes_critic_reviews.csv` (Kaggle), `data/processed/train.txt` |
 | Part II | `Part2_embeddings_Colab.ipynb` | `data/processed/` from Part I; internet (GloVe) |
 | Part III | `Part3_downstream_Colab.ipynb` | `data/prepared/`, `results/lstm.pt` (Part I), `results/part2/lstm_*.pt` (Part II) |
 
@@ -62,6 +74,7 @@ Part II is resumable: finished (setting, seed) runs are skipped and an interrupt
 | Part II per-seed, summary and paired tables | Part II → Cell 9 | `part2/runs_part2.csv`, `part2/summary_part2.csv`, `part2/paired_part2.csv` |
 | Part II validation curves + test PPL figure | Part II → Cell 10 | `part2/valid_curves_part2.png` |
 | Part II generations | Part II → Cell 11 | `part2/generations_part2.md` |
+| Rotten Tomatoes cleaning / dedup / overlap / split statistics | Part III data prep → Cells 3–7 | `data/prepared/prep_stats.json`, `data/prepared/overlap_removed.csv` |
 | Part III tokenization stats (OOV, truncation) | Part III → Cell 2 | `part3/tokenization_stats.csv` |
 | Part III downstream table, LM-vs-downstream ranking, TF-IDF reference | Part III → Cell 5 | `part3/results_embeddings_summary.csv`, `part3/results_embeddings_per_seed.csv` |
 | Part III error analysis + McNemar test | Part III → Cell 6 | `part3/errors_by_tag_*.csv`, `part3/error_table_*.csv` |
@@ -77,6 +90,7 @@ Checkpoints, Skip-gram models and feature matrices (`*.pt`, `*.model`, `*.npy`) 
 | Part II: Skip-gram | 63 s on 2 CPU cores |
 | Part II: GloVe download + load | 82 s |
 | Part II: 12 LSTM runs (4 settings × 3 seeds, 20 epochs, ~21 s/epoch) | 406–440 s each, ≈ 85 min total |
+| Part III data prep (CPU) | not recorded |
 | Part III | not recorded; feature extraction and logistic regression take minutes, not hours |
 
 CPU-only runtimes weren't measured. Neural training is much slower on CPU.
@@ -147,7 +161,8 @@ CPU-only runtimes weren't measured. Neural training is much slower on CPU.
 | Part II OOV vector initialisation | 0 |
 | Generation / decoding (Parts I, II) | 123 |
 | Part III global seed (`set_seed`) | 42; features come from the Part II seed-42/43/44 LMs |
-| Rotten Tomatoes train/val/test split | **TODO** |
+| Rotten Tomatoes movie → split assignment | 42 |
+| Rotten Tomatoes per-split sampling (cap + balance) | 42 / 43 / 44 for train / valid / test |
 
 `set_seed()` seeds `random`, `numpy`, `torch` and CUDA. GPU kernels are not forced to be deterministic, so re-runs on a T4 can differ slightly in the last decimal places.
 
@@ -156,6 +171,7 @@ CPU-only runtimes weren't measured. Neural training is much slower on CPU.
 ```
 Part1_models_Colab.ipynb       Part I   (outputs kept so results are visible)
 Part2_embeddings_Colab.ipynb   Part II  (outputs kept)
+Part3_data_prep_RottenTomatoes.ipynb   Rotten Tomatoes cleaning + splits (outputs kept)
 Part3_downstream_Colab.ipynb   Part III (outputs kept)
 data/prepare_data.py           WikiText-2 download → data/processed/
 src/evaluate.py                CE / PPL helper used by src/part1_models/RNN.py
