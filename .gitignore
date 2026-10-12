@@ -1,15 +1,16 @@
 # Data is downloaded, never committed (see README "Data access")
 data/processed/
+data/prepared/
 data/raw/
-*.csv
-!results/*.csv
 
 # Credentials
 kaggle.json
 .env
 *.token
 
-# Generated outputs
-results/*.pt
+# Generated outputs (checkpoints, models, feature matrices)
+results/**/*.pt
+results/**/*.model
+results/**/*.npy
 __pycache__/
 .ipynb_checkpoints/
