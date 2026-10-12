@@ -53,10 +53,10 @@ Part II is resumable: finished (setting, seed) runs are skipped and an interrupt
 
 | Report item | Notebook → cell | File (under `results/`) |
 |---|---|---|
-| n-gram add-k tuning + test PPL | Part I → Cell 4 | — |
-| Part I perplexity / cost table | Part I → Cell 10 | `metrics_part1.csv` |
+| n-gram add-k / λ tuning + test PPL | Part I → Cell 4 | `ngram_tuning.json`, `result_trigram.json` |
+| Part I perplexity / cost table | Part I → Cell 10 | `metrics_part1.csv` (+ `result_{rnn,lstm,transformer}.json`) |
 | Part I loss curves | Part I → Cell 11 | `loss_curves_part1.png` |
-| Part I generations | Part I → Cell 12 | `generations.md` |
+| Part I generations (trigram + 3 neural LMs) | Part I → Cell 12 | `generations.md` |
 | Skip-gram training cost + nearest neighbours | Part II → Cell 4 | `part2/own_skipgram_cost.json` |
 | GloVe vocabulary coverage | Part II → Cell 5 | `part2/coverage_glove-wiki-gigaword-100.json` |
 | Part II per-seed, summary and paired tables | Part II → Cell 9 | `part2/runs_part2.csv`, `part2/summary_part2.csv`, `part2/paired_part2.csv` |
@@ -72,8 +72,8 @@ Checkpoints, Skip-gram models and feature matrices (`*.pt`, `*.model`, `*.npy`) 
 
 | Step | Time |
 |---|---|
-| Part I: n-gram fit | 9 s (CPU); dev-set tuning adds a few minutes (not timed) |
-| Part I: RNN / LSTM / Transformer | 159 s / 252 s / 270 s (≈ 11 min total) |
+| Part I: n-gram fit | 20 s (CPU); the add-k × λ grid search on the dev set adds several minutes (not timed) |
+| Part I: RNN / LSTM / Transformer, 20 epochs each | 446 s / 474 s / 575 s (≈ 25 min total) |
 | Part II: Skip-gram | 63 s on 2 CPU cores |
 | Part II: GloVe download + load | 82 s |
 | Part II: 12 LSTM runs (4 settings × 3 seeds, 20 epochs, ~21 s/epoch) | 406–440 s each, ≈ 85 min total |
@@ -84,9 +84,12 @@ CPU-only runtimes weren't measured. Neural training is much slower on CPU.
 ## Configurations
 
 ### Part I — n-gram
-- Trigram (orders 1–3) over the same token stream and 30k vocabulary as the neural models.
-- Linear interpolation with fixed weights λ₁ = λ₂ = λ₃ = 1/3.
-- Add-k grid {0.001, 0.01, 0.05, 0.1, 0.5, 1.0}, tuned on the validation set. Best k = 0.001.
+- Trigram (orders 1–3) over the same token stream and 30k vocabulary as the neural models. `<pad>` is excluded from |V| (30,001).
+- Add-k smoothing per order, then linear interpolation P = λ₁P₁ + λ₂P₂ + λ₃P₃.
+- Tuned jointly on the validation set:
+  - add-k ∈ {1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2};
+  - for each k, (λ₁, λ₂, λ₃) searched over a simplex grid in steps of 0.05 (all λ > 0, summing to 1).
+- Best: k = 3e-5, λ = (0.25, 0.55, 0.20). Dev PPL 259.73, test PPL 246.90 (7.95 bits/token).
 
 ### Part I — neural LMs (shared `BASE_CFG`, Cell 6)
 
@@ -94,19 +97,22 @@ CPU-only runtimes weren't measured. Neural training is much slower on CPU.
 |---|---|
 | Optimizer | Adam, LR 1e-3 |
 | Batch size | 64 |
-| Max epochs | 15, early stopping with patience 2 on validation PPL (best checkpoint restored) |
+| Max epochs | 20, early stopping with patience 2 on validation PPL (best checkpoint restored). All three models ran the full 20 epochs. |
 | Gradient clipping | max-norm 1.0 |
 | Context window | 32 tokens |
-| Embedding dim | 128 |
+| Embedding dim | 100 (the same as Part II / GloVe-100) |
 | Hidden dim | 256 (RNN/LSTM hidden size; Transformer feed-forward size) |
-| RNN / LSTM | 1 layer, no dropout |
-| Transformer | 2 layers, 4 heads, dropout 0.1, sinusoidal positions, causal mask |
+| Dropout | 0.3 on embeddings and outputs (Transformer: also inside its layers) |
+| Output layer | tied to the input embedding; RNN/LSTM project hidden 256 → 100 first |
+| RNN / LSTM | 1 layer |
+| Transformer | decoder-only (causal self-attention), 2 layers, 4 heads, sinusoidal positions |
+| Parameters | RNN 3.15M, LSTM 3.42M, Transformer 3.21M |
 | Loss | cross-entropy, reported in bits/token; PPL = 2^CE |
 | Precision | fp16 autocast + GradScaler on GPU |
 
 ### Generation (Part I Cell 12, Part II Cell 11)
 - Temperature 0.8, top-k 40, at most 30 new tokens, context 32 tokens, decoding seed 123. `<pad>` is never sampled, and generation stops at `</s>`.
-- Five prompts, the same for every model within a part. Part II's prompts are slightly different wordings of Part I's.
+- The same five prompts in both parts. Part I also samples from the trigram, using the same temperature and top-k.
 
 ### Part II — embedding ablation (LSTM)
 
@@ -117,7 +123,7 @@ CPU-only runtimes weren't measured. Neural training is much slower on CPU.
 | `public` | GloVe `glove-wiki-gigaword-100` | frozen |
 | `public_ft` (extra) | GloVe `glove-wiki-gigaword-100` | yes (fine-tuned) |
 
-- Embedding dim 100, to match GloVe. The `random` baseline is retrained in Part II with the same architecture as the other settings; it is not the Part I LSTM.
+- Embedding dim 100, to match GloVe. The `random` baseline is retrained in Part II, not reused from Part I: the Part II LSTM has an **untied** output layer, so freezing the input table never freezes the output layer, and it sets `padding_idx`. Otherwise it matches the Part I LSTM.
 - LSTM (`LSTM_CFG`, Cell 7): 1 layer, hidden 256, dropout 0.3 on embeddings and outputs, projection 256→100 before an untied output layer, `padding_idx` = `<pad>`. Adam LR 1e-3, batch 64, window 32, max 20 epochs, early-stopping patience 2, gradient clipping 1.0, AMP. Only trainable parameters go to the optimizer.
 - Skip-gram (`SG_CFG`, Cell 2): gensim `Word2Vec`, `sg=1`, vector_size 100, window 5, negative 5, min_count 1, epochs 5, workers 1, seed 42. It's trained on the `<unk>`-mapped training stream, so every vocabulary entry gets a vector.
 - GloVe coverage: 96.39% of vocabulary types (28,914 / 29,998) and 99.66% of in-vocabulary training tokens.
