@@ -8,7 +8,7 @@ Code for Parts I–III of the DSA4213 individual assignment: language-model comp
 
 - Python 3.12 (Google Colab runtime)
 - Hardware used for reported numbers: Google Colab **NVIDIA Tesla T4** (16 GB) with mixed precision (AMP). The n-gram model runs on CPU.
-- Dependencies (pinned): `pip install -r requirements.txt`. These are torch 2.5.1, numpy 1.26.4, scipy 1.13.1, gensim 4.3.3, scikit-learn 1.5.2, datasets 3.1.0, pandas 2.2.2 and matplotlib 3.9.2.
+- Dependencies (pinned): `pip install -r requirements.txt`. These are torch 2.5.1, numpy 1.26.4, scipy 1.13.1, gensim 4.3.3, scikit-learn 1.5.2, datasets 3.1.0, pyarrow 17.0.0, pandas 2.2.2 and matplotlib 3.9.2.
 
 No API keys, Kaggle tokens or Hugging Face tokens are needed or included. Colab may print an "HF_TOKEN not found" warning, which you can ignore.
 
