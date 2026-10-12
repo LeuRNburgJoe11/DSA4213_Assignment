@@ -1,0 +1,9 @@
+# Python 3.12 (Google Colab runtime, T4 GPU). Install with: pip install -r requirements.txt
+torch==2.5.1
+numpy==1.26.4
+scipy==1.13.1
+gensim==4.3.3
+scikit-learn==1.5.2
+datasets==3.1.0
+pandas==2.2.2
+matplotlib==3.9.2

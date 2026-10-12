@@ -1,0 +1,15 @@
+# Data is downloaded, never committed (see README "Data access")
+data/processed/
+data/raw/
+*.csv
+!results/*.csv
+
+# Credentials
+kaggle.json
+.env
+*.token
+
+# Generated outputs
+results/*.pt
+__pycache__/
+.ipynb_checkpoints/
