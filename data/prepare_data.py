@@ -1,71 +1,31 @@
 """
-prepare_data.py — WikiText-103 loading and preprocessing sketch
-for DSA4213 Assignment 1 (Parts I & II).
+prepare_data.py — download WikiText-2 (raw) for DSA4213 Assignment 1 (Parts I & II).
 
-This produces a cleaned, concatenated text stream plus train/val/test
-splits ready for tokenization. Adjust SUBSET_FRACTION to keep the
-project computationally reasonable.
+Writes data/processed/{train,valid,test}.txt exactly as Part1_models_Colab.ipynb
+(Cell 1) does: each split's raw lines concatenated unchanged. All cleaning
+(@-@/@,@/@.@ markers, lowercasing, tokenizing, <s>/</s> per line, 30k vocab)
+happens at tokenization time in the notebook, so no text is altered here.
+
+Source: https://huggingface.co/datasets/Salesforce/wikitext (CC BY-SA 3.0).
+Public dataset — no Hugging Face token needed.
+
+Run from the repo root:  python data/prepare_data.py
 """
 
-import re
+from pathlib import Path
+
 from datasets import load_dataset
 
-SUBSET_FRACTION = 0.05  # e.g. use ~5% of train for a manageable corpus size
-
-
-def load_raw():
-    """Load WikiText-103 (raw, unprocessed tokens) from the Hub."""
-    ds = load_dataset("Salesforce/wikitext", "wikitext-103-raw-v1")
-    return ds  # DatasetDict with 'train', 'validation', 'test'
-
-
-def clean_lines(lines):
-    """
-    WikiText rows include blank lines and section headers like
-    '= Title =' or '= = Subheading = ='. Decide explicitly what to
-    keep — this is a preprocessing decision you should document
-    in the report.
-    """
-    cleaned = []
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue  # drop blank lines
-        # Drop section/subsection headers (lines wrapped in '=' signs)
-        if re.match(r"^=+.*=+$", line):
-            continue
-        cleaned.append(line)
-    return cleaned
-
-
-def build_corpus(split_dataset, subset_fraction=1.0):
-    """Concatenate a split's lines into one text stream, optionally subsetting."""
-    lines = split_dataset["text"]
-    if subset_fraction < 1.0:
-        n = int(len(lines) * subset_fraction)
-        lines = lines[:n]
-    lines = clean_lines(lines)
-    return "\n".join(lines)
+OUT_DIR = Path("data/processed")
 
 
 def main():
-    ds = load_raw()
-
-    train_text = build_corpus(ds["train"], subset_fraction=SUBSET_FRACTION)
-    val_text = build_corpus(ds["validation"], subset_fraction=1.0)
-    test_text = build_corpus(ds["test"], subset_fraction=1.0)
-
-    print(f"Train chars: {len(train_text):,}")
-    print(f"Val chars:   {len(val_text):,}")
-    print(f"Test chars:  {len(test_text):,}")
-
-    # Save to data/processed/ for downstream tokenizer.py to consume
-    with open("data/processed/train.txt", "w", encoding="utf-8") as f:
-        f.write(train_text)
-    with open("data/processed/valid.txt", "w", encoding="utf-8") as f:
-        f.write(val_text)
-    with open("data/processed/test.txt", "w", encoding="utf-8") as f:
-        f.write(test_text)
+    ds = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1")
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    for split, name in (("train", "train"), ("validation", "valid"), ("test", "test")):
+        path = OUT_DIR / f"{name}.txt"
+        path.write_text("".join(ds[split]["text"]), encoding="utf-8")
+        print(f"{path}: {path.stat().st_size / 1e6:.2f} MB")
 
 
 if __name__ == "__main__":

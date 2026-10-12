@@ -1,3 +1,4 @@
+# Adapted from the DSA4213 Lecture 1 notebook (n-gram language models).
 import re
 import math
 from collections import Counter, defaultdict 

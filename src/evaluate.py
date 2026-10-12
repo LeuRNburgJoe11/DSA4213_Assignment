@@ -1,3 +1,4 @@
+# Adapted from the DSA4213 Lecture 1 notebook (cross-entropy / perplexity evaluation).
 # src/evaluate.py
 import math
 import torch
