@@ -16,3 +16,6 @@ results/**/*.model
 results/**/*.npy
 __pycache__/
 .ipynb_checkpoints/
+
+# Release asset (upload to GitHub release v1.0, do not commit)
+checkpoints.zip
