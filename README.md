@@ -148,7 +148,7 @@ CPU-only runtimes weren't measured. Neural training is much slower on CPU.
 - Representations: frozen LM hidden states (256-d) from the Part II LSTMs (3 settings × 3 seeds) and the Part I LSTM. Two kinds of pooling are used: **last** (state at the final real token) and **mean** (average over real tokens, including `<s>`, excluding padding). The main table uses mean pooling for `random` / `own_sg` / `public`.
 - Classifier: `StandardScaler` + scikit-learn `LogisticRegression` (`max_iter=3000`). C is chosen from {1e-4, 1e-3, 1e-2, 0.1, 1, 10, 100} by validation macro-F1, then evaluated once on the test set. Metrics are accuracy and macro-F1.
 - References: majority class, and TF-IDF (1–2-grams, `min_df=2`, same tokenizer) + logistic regression with the same C search.
-- Error analysis: error rates on tagged subsets (negation, contrast, truncated, OOV-heavy, very short), plus McNemar's exact test between `random` and `public` for each LM seed.
+- Error analysis: error rates on tagged subsets (negation, contrast, truncated, UNK-heavy, very short), plus McNemar's exact test between `random` and `public` for each LM seed.
 
 ## Random seeds
 
