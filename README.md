@@ -16,7 +16,7 @@ No API keys, Kaggle tokens or Hugging Face tokens are needed or included. Colab 
 |---|---|---|
 | WikiText-2 (raw), CC BY-SA 3.0 | Parts I, II | Hugging Face [`Salesforce/wikitext`](https://huggingface.co/datasets/Salesforce/wikitext), config `wikitext-2-raw-v1`. Run `python data/prepare_data.py`, or let Cell 1 of the Part I notebook download it. Both write `data/processed/{train,valid,test}.txt`. |
 | GloVe 6B, 100-d | Part II | `gensim.downloader.load("glove-wiki-gigaword-100")` in Part II Cell 5. This downloads about 128 MB to `~/gensim-data` the first time it runs. It is not bundled. |
-| Rotten Tomatoes critic reviews | Part III | Kaggle: [stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset](https://www.kaggle.com/datasets/stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset). Sign in to Kaggle, download the dataset (or run `kaggle datasets download -d stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset` with your own `~/.kaggle/kaggle.json`), and unzip `rotten_tomatoes_critic_reviews.csv` into `data/raw/`. Then run `Part3_data_prep_RottenTomatoes.ipynb` to build `data/prepared/rt_{train,valid,test}.csv`. None of these CSVs are redistributed here; `.gitignore` excludes `data/raw/`, `data/prepared/` and `kaggle.json`. |
+| Rotten Tomatoes critic reviews | Part III | Kaggle: [stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset](https://www.kaggle.com/datasets/stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset). Sign in to Kaggle, download the dataset (or run `kaggle datasets download -d stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset` with your own `~/.kaggle/kaggle.json`), and unzip `rotten_tomatoes_critic_reviews.csv` into `data/raw/`. Then run `Part3_data_prep_RottenTomatoes.ipynb` to build `data/prepared/rt_{train,valid,test}.csv`. For Colab, the repo includes `data/raw/rt_critic_reviews.csv.gz.part{1,2,3}`: a gzipped copy of the three columns the prep notebook reads (`rotten_tomatoes_link`, `review_type`, `review_content`), split to stay under GitHub's 25 MB file limit. Cell 0b of `Part3_downstream_Colab.ipynb` joins them back into `rotten_tomatoes_critic_reviews.csv`. `.gitignore` excludes the full Kaggle CSVs, `data/prepared/` and `kaggle.json`. |
 
 ### Preprocessing (Parts I and II)
 
@@ -173,8 +173,6 @@ Part2_embeddings_Colab.ipynb   Part II  (outputs kept)
 Part3_data_prep_RottenTomatoes.ipynb   Rotten Tomatoes cleaning + splits (outputs kept)
 Part3_downstream_Colab.ipynb   Part III (outputs kept)
 data/prepare_data.py           WikiText-2 download → data/processed/
-src/evaluate.py                CE / PPL helper used by src/part1_models/RNN.py
-src/part1_models/              early standalone scripts and a superseded local draft notebook;
                                the reported results come from the notebooks above
 requirements.txt
 ```

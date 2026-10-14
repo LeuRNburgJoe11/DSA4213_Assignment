@@ -1,7 +1,9 @@
-# Data is downloaded, never committed (see README "Data access")
+# Data is downloaded, not committed, except the split review parts below (see README "Data access")
 data/processed/
 data/prepared/
-data/raw/
+data/raw/*
+# 3-column copy of the Kaggle reviews, split to stay under GitHub's 25 MB limit
+!data/raw/rt_critic_reviews.csv.gz.part*
 
 # Credentials
 kaggle.json
