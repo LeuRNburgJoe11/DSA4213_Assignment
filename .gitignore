@@ -3,7 +3,9 @@ data/processed/
 data/prepared/
 data/raw/*
 # 3-column copy of the Kaggle reviews, split to stay under GitHub's 25 MB limit
-!data/raw/rt_critic_reviews.csv.gz.part*
+!data/raw/rt_critic_reviews.csv.gz.part1
+!data/raw/rt_critic_reviews.csv.gz.part2
+!data/raw/rt_critic_reviews.csv.gz.part3
 
 # Credentials
 kaggle.json
