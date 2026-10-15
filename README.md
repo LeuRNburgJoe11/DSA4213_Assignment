@@ -25,7 +25,7 @@ Every dataset is downloaded from its original source by the notebooks.
 | GloVe 6B, 100-d | Part II | `gensim.downloader.load("glove-wiki-gigaword-100")` (Part II Cell 5), about 128 MB, cached in `~/gensim-data`. |
 | Rotten Tomatoes critic reviews | Part III | Kaggle: [stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset](https://www.kaggle.com/datasets/stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset). Downloaded automatically with `kagglehub` (Cell 0 of `Part3_data_prep_RottenTomatoes.ipynb`). If that fails, Colab asks you to upload `rotten_tomatoes_critic_reviews.csv` (or the Kaggle `archive.zip`); outside Colab, place the CSV in `data/raw/` yourself. |
 
-`.gitignore` excludes `data/raw/`, `data/prepared/`, `kaggle.json`, and all checkpoint and feature files (`*.pt`, `*.model`, `*.npy`).
+`.gitignore` excludes `data/raw/`, `data/processed/`, `kaggle.json`, `checkpoints.zip`, and all checkpoint and feature files (`*.pt`, `*.model`, `*.npy`). It also excludes `data/prepared/` except for the cleaned Rotten Tomatoes splits that Part III reads (`rt_{train,valid,test}.csv`, about 3.7 MB in total) and `prep_stats.json`, which are committed so Part III runs without the Kaggle download. Raw Kaggle files are not committed.
 
 ### Preprocessing: WikiText-2 (Parts I and II)
 
@@ -46,7 +46,7 @@ Sizes: 2,124,061 train / 221,501 valid / 249,435 test tokens.
 1. **Load** 1,130,017 rows and rename `rotten_tomatoes_link` → `movie_id`, `review_content` → `text`, `review_type` → `label` (Fresh = 1, Rotten = 0).
 2. **Clean:** drop rows with missing fields (1,064,211 remain), strip `[Full review in …]` tags, and collapse whitespace. Drop reviews with fewer than 4 tokens (Part I tokenizer). 1,058,330 rows remain.
 3. **Deduplicate** on normalised text (lowercase alphanumerics): keep one copy of each repeated text, and drop every copy of texts whose copies have conflicting labels (700 rows). 944,430 rows remain.
-4. **WikiText overlap filter:** drop a review if at least 50% of its 8-grams occur in WikiText-2 train, or if it shares any 13-gram with it. 497 reviews share at least one 8-gram; **64** Rotten Tomato Reviews meet this rule and are removed (listed in `data/prepared/overlap_removed.csv`).
+4. **WikiText overlap filter:** drop a review if at least 50% of its 8-grams occur in WikiText-2 train, or if it shares any 13-gram with it. 497 reviews share at least one 8-gram; **64** Rotten Tomato Reviews meet this rule and are removed (listed in `data/prepared/overlap_removed.csv`, which is written when the prep notebook runs and is not committed).
 5. **Split by movie:** 80 / 10 / 10% of movies go to train / valid / test (seed 42). No movie appears in two splits.
 6. **Cap and balance:** keep at most 10 reviews per movie, then sample balanced Fresh/Rotten sets of 20,000 / 2,500 / 2,500 reviews from 10,831 / 1,347 / 1,342 movies (sampling seeds 42 / 43 / 44).
 7. **Assert** that no movie and no normalised text is shared across splits, then write `data/prepared/rt_{train,valid,test}.csv` and `prep_stats.json`.
@@ -165,7 +165,7 @@ The training notebooks were not all re-run after their final edits, because of C
 | Part II tables | Part II → 9 | `results/part2/runs_part2.csv`, `summary_part2.csv`, `paired_part2.csv` |
 | Part II curves + test-PPL figure | Part II → 10 | `results/part2/valid_curves_part2.png` |
 | Part II generations | Part II → 11 | `results/part2/generations_part2.md` |
-| RT cleaning / split statistics | RT prep → 3–7 | `data/prepared/prep_stats.json`, `overlap_removed.csv` |
+| RT cleaning / split statistics | RT prep → 3–7 | `data/prepared/prep_stats.json` (committed), `overlap_removed.csv` (written by the prep notebook, not committed) |
 | Part III `<unk>` rate / truncation | Part III → 2 | `results/part3/tokenization_stats.csv` |
 | Last vs mean pooling (validation) | Part III → 4 | printed in the notebook |
 | Part III main table, ranking, TF-IDF | Part III → 5 | `results/part3/results_embeddings_summary.csv`, `results_embeddings_per_seed.csv` |

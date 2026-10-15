@@ -7,3 +7,4 @@ scikit-learn==1.5.2
 datasets==3.1.0
 pandas==2.2.2
 matplotlib==3.9.2
+kagglehub==1.0.2
