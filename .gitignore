@@ -1,11 +1,12 @@
-# Data is downloaded, not committed, except the split review parts below (see README "Data access")
+# Data is downloaded, not committed, except the Part III splits below (see README "Data access")
 data/processed/
-data/prepared/
-data/raw/*
-# 3-column copy of the Kaggle reviews, split to stay under GitHub's 25 MB limit
-!data/raw/rt_critic_reviews.csv.gz.part1
-!data/raw/rt_critic_reviews.csv.gz.part2
-!data/raw/rt_critic_reviews.csv.gz.part3
+data/raw/
+data/prepared/*
+# Cleaned Rotten Tomatoes splits read by Part III (25k short reviews, small enough for GitHub)
+!data/prepared/rt_train.csv
+!data/prepared/rt_valid.csv
+!data/prepared/rt_test.csv
+!data/prepared/prep_stats.json
 
 # Credentials
 kaggle.json
