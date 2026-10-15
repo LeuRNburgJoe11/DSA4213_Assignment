@@ -17,13 +17,13 @@ Code for the DSA4213 individual assignment:
 
 ## Data access
 
-No data files are committed. Every dataset is downloaded from its original source by the notebooks.
+Every dataset is downloaded from its original source by the notebooks.
 
 | Data | Used in | How to get it |
 |---|---|---|
 | WikiText-2 raw (CC BY-SA 3.0) | Parts I–III | Hugging Face [`Salesforce/wikitext`](https://huggingface.co/datasets/Salesforce/wikitext), config `wikitext-2-raw-v1`. Downloaded automatically by Part I Cell 1 or `python data/prepare_data.py` (every notebook calls this if `data/processed/` is missing). Writes `data/processed/{train,valid,test}.txt`. |
 | GloVe 6B, 100-d | Part II | `gensim.downloader.load("glove-wiki-gigaword-100")` (Part II Cell 5), about 128 MB, cached in `~/gensim-data`. |
-| Rotten Tomatoes critic reviews | Part III | Kaggle: [stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset](https://www.kaggle.com/datasets/stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset). Downloaded automatically with `kagglehub` (Cell 0 of `Part3_data_prep_RottenTomatoes.ipynb`). If that fails, Colab asks you to upload `rotten_tomatoes_critic_reviews.csv` (or the Kaggle `archive.zip`); outside Colab, place the CSV in `data/raw/` yourself. Not redistributed in this repo. |
+| Rotten Tomatoes critic reviews | Part III | Kaggle: [stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset](https://www.kaggle.com/datasets/stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset). Downloaded automatically with `kagglehub` (Cell 0 of `Part3_data_prep_RottenTomatoes.ipynb`). If that fails, Colab asks you to upload `rotten_tomatoes_critic_reviews.csv` (or the Kaggle `archive.zip`); outside Colab, place the CSV in `data/raw/` yourself. |
 
 `.gitignore` excludes `data/raw/`, `data/prepared/`, `kaggle.json`, and all checkpoint and feature files (`*.pt`, `*.model`, `*.npy`).
 
@@ -80,11 +80,11 @@ The training notebooks were not all re-run after their final edits, because of C
    |---|---|---|
    | LSTM dropout | 0.0 | 0.3 |
    | Test PPL, random / own_sg / public (mean of 3 seeds) | 168.57 / 153.42 / 146.16 | 141.2 / 141.7 / 137.5 |
-   | Early stopping | yes, after 9–14 epochs | see `epochs_run` in `result_*.json` |
+   | Early stopping | yes, after 9–14 epochs | no, all 9 runs trained the full 20 epochs (`epochs_run` in `result_*.json`) |
 
    Everything else is identical: architecture, vocabulary, data, Skip-gram and GloVe matrices, seeds 42/43/44, and training procedure. Part III features, the `lm_test_ppl` column in Part III Cell 5 and the LM-vs-downstream ranking all come from the **dropout 0.3 checkpoints**. To reproduce them, set `dropout=0.3` in `LSTM_CFG` (Part II Cell 7) before running Cell 8.
 
-2. **Unused files in `checkpoints.zip`.** The release may also contain `lstm_public_ft_s*.pt` / `result_public_ft_s*.json` (an exploratory fine-tuned GloVe setting whose training code is not included) and `lstm_ random_s4{2,3}.pt` / `result_ random_s4{2,3}.json` (leftovers with a space in the name). No notebook reads them, and no reported number comes from them.
+2. **Part II Cell 12 has no output.** It was added after the dropout 0.0 run and only packages the checkpoints into `checkpoints.zip`. The release zip was built from the dropout 0.3 run instead and holds exactly 19 files: `results/lstm.pt` plus `lstm_{setting}_s{seed}.pt` and `result_{setting}_s{seed}.json` for random / own_sg / public × seeds 42 / 43 / 44.
 
 3. **Notebook text.** Part I's markdown says Cell 0 mounts Google Drive; it actually clones the repo, as described above.
 
