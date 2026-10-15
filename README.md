@@ -1,184 +1,219 @@
 # DSA4213 Assignment 1
 
-Code for Parts I–III of the DSA4213 individual assignment: language-model comparison (Part I), embedding ablation (Part II) and downstream classification (Part III).
+Code for the DSA4213 individual assignment:
+
+- **Part I:** language-model comparison (trigram, RNN, LSTM, Transformer) on WikiText-2.
+- **Part II:** embedding ablation on the LSTM (random / own Skip-gram / GloVe).
+- **Part III:** downstream sentiment classification on Rotten Tomatoes critic reviews, using frozen LSTM representations.
+
+> **Read first.** Part III uses Part II checkpoints from a second training run with dropout 0.3, while the Part II notebook shows the dropout 0.0 run. See [Known discrepancies](#known-discrepancies). The report explains this in its "Note on checkpoints" (Part III).
 
 ## Environment
 
-- Python 3.12 (Google Colab runtime 2026.07)
-- Hardware used for reported numbers: Google Colab **NVIDIA Tesla T4** (16 GB) with mixed precision (AMP). The n-gram model and Skip-gram training run on CPU (2 cores).
-- Dependencies (pinned): `pip install -r requirements.txt`. These are torch 2.5.1, numpy 2.0.2, scipy 1.14.1, gensim 4.4.0, scikit-learn 1.5.2, datasets 3.1.0, pandas 2.2.2 and matplotlib 3.9.2. On Colab, only gensim needs installing; Part II Cell 1b does it.
+- Python 3.12, Google Colab (runtime 2026.07).
+- Hardware for all reported numbers: **NVIDIA Tesla T4** (16 GB), mixed precision (fp16 autocast + GradScaler). The n-gram model, Skip-gram and Rotten Tomatoes preprocessing run on CPU (2 cores).
+- Dependencies: `pip install -r requirements.txt`. Pinned versions: torch 2.5.1, numpy 2.0.2, scipy 1.14.1, gensim 4.4.0, scikit-learn 1.5.2, datasets 3.1.0, pandas 2.2.2, matplotlib 3.9.2, kagglehub. On Colab, only gensim needs installing (Part II Cell 1b does it).
+- No API keys or tokens are included. Colab may warn that `HF_TOKEN` is not set; this can be ignored, because WikiText-2 is public.
 
-No API keys, Kaggle tokens or Hugging Face tokens are needed or included. Colab may print an "HF_TOKEN not found" warning, which you can ignore.
+## Data access
 
-## Data access (no data files are committed)
+No data files are committed. Every dataset is downloaded from its original source by the notebooks.
 
 | Data | Used in | How to get it |
 |---|---|---|
-| WikiText-2 (raw), CC BY-SA 3.0 | Parts I, II | Hugging Face [`Salesforce/wikitext`](https://huggingface.co/datasets/Salesforce/wikitext), config `wikitext-2-raw-v1`. Run `python data/prepare_data.py`, or let Cell 1 of the Part I notebook download it. Both write `data/processed/{train,valid,test}.txt`. |
-| GloVe 6B, 100-d | Part II | `gensim.downloader.load("glove-wiki-gigaword-100")` in Part II Cell 5. This downloads about 128 MB to `~/gensim-data` the first time it runs. It is not bundled. |
-| Rotten Tomatoes critic reviews | Part III | Kaggle: [stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset](https://www.kaggle.com/datasets/stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset). Sign in to Kaggle, download the dataset (or run `kaggle datasets download -d stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset` with your own `~/.kaggle/kaggle.json`), and unzip `rotten_tomatoes_critic_reviews.csv` into `data/raw/`. Then run `Part3_data_prep_RottenTomatoes.ipynb` to build `data/prepared/rt_{train,valid,test}.csv`. The resulting splits (`data/prepared/rt_{train,valid,test}.csv`, 20,000 / 2,500 / 2,500 reviews) and `prep_stats.json` are committed, so Part III runs without the Kaggle download; the prep step is only needed to rebuild them. `.gitignore` excludes the Kaggle CSVs (`data/raw/`), the other files in `data/prepared/` and `kaggle.json`. |
+| WikiText-2 raw (CC BY-SA 3.0) | Parts I–III | Hugging Face [`Salesforce/wikitext`](https://huggingface.co/datasets/Salesforce/wikitext), config `wikitext-2-raw-v1`. Downloaded automatically by Part I Cell 1 or `python data/prepare_data.py` (every notebook calls this if `data/processed/` is missing). Writes `data/processed/{train,valid,test}.txt`. |
+| GloVe 6B, 100-d | Part II | `gensim.downloader.load("glove-wiki-gigaword-100")` (Part II Cell 5), about 128 MB, cached in `~/gensim-data`. |
+| Rotten Tomatoes critic reviews | Part III | Kaggle: [stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset](https://www.kaggle.com/datasets/stefanoleone992/rotten-tomatoes-movies-and-critic-reviews-dataset). Downloaded automatically with `kagglehub` (Cell 0 of `Part3_data_prep_RottenTomatoes.ipynb`). If that fails, Colab asks you to upload `rotten_tomatoes_critic_reviews.csv` (or the Kaggle `archive.zip`); outside Colab, place the CSV in `data/raw/` yourself. Not redistributed in this repo. |
 
-### Preprocessing (Parts I and II)
+`.gitignore` excludes `data/raw/`, `data/prepared/`, `kaggle.json`, and all checkpoint and feature files (`*.pt`, `*.model`, `*.npy`).
 
-1. Use the official WikiText-2 train/validation/test splits as-is.
+### Preprocessing: WikiText-2 (Parts I and II)
+
+1. Use the official train / validation / test splits.
 2. Undo WikiText escaping: ` @-@ ` → `-`, ` @,@ ` → `,`, ` @.@ ` → `.`.
-3. Lowercase and normalise `’` to `'`.
-4. Tokenize with the regex `\w+(?:'\w+)?|[^\w\s]` (words, with internal apostrophes kept, and single punctuation marks).
-5. Wrap each non-empty line as `<s> … </s>` and concatenate everything into one token stream per split.
-6. Vocabulary: the 30,000 most frequent **training** tokens, plus `<pad>` and `<unk>` (30,002 entries). Everything else maps to `<unk>`, which covers 2.13% of training tokens.
-7. Neural LMs read non-overlapping windows of 32 tokens, with targets shifted by one.
+3. Lowercase the text and normalise `’` to `'`.
+4. Tokenize with the regex `\w+(?:'\w+)?|[^\w\s]`.
+5. Wrap each non-empty line in `<s> … </s>` and concatenate everything into one token stream per split.
+6. Build the vocabulary from the 30,000 most frequent **training** tokens, plus `<pad>` and `<unk>` (30,002 entries). Other tokens map to `<unk>` (2.13% of training tokens).
+7. Neural LMs read non-overlapping 32-token windows, with targets shifted by one. No padding occurs, but `<pad>` is still excluded from the loss via `ignore_index`.
 
-Resulting sizes: 2,124,061 train / 221,501 valid / 249,435 test tokens.
+Sizes: 2,124,061 train / 221,501 valid / 249,435 test tokens.
 
-### Preprocessing (Part III)
+### Preprocessing: Rotten Tomatoes (Part III)
 
 `Part3_data_prep_RottenTomatoes.ipynb` (CPU, deterministic given `SEED = 42`):
 
-1. **Load:** `rotten_tomatoes_critic_reviews.csv` (1,130,017 rows), columns `rotten_tomatoes_link` → `movie_id`, `review_content` → `text`, `review_type` → `label` (Fresh = 1, Rotten = 0).
-2. **Clean:** drop rows missing movie, text or label. Strip `[Full review in …]` tags and collapse whitespace. Drop reviews with fewer than 4 tokens (Part I tokenizer). This leaves 1,058,330 rows.
-3. **Deduplicate:** texts are normalised to lowercase alphanumerics. Keep one copy of each repeated text, and drop every copy whose labels conflict (700 rows). This leaves 944,430 rows.
-4. **WikiText overlap filter:** drop a review if at least 50% of its 8-grams appear in WikiText-2 train, or if it shares any 13-gram with it. This catches critic quotes copied into Wikipedia articles (64 removed; listed in `overlap_removed.csv`).
-5. **Split by movie:** shuffle movies with seed 42 and assign 80 / 10 / 10% of them to train / valid / test. No movie appears in two splits.
-6. **Cap and balance:** within each split, keep at most 10 reviews per movie, then sample equal Fresh/Rotten counts up to 20,000 / 2,500 / 2,500 reviews. The sampling seeds are 42 (train), 43 (valid) and 44 (test).
-7. **Checks:** assert that no movie and no normalised text is shared across splits. Write the `rt_*.csv` files (`movie_id, label, n_tokens, text`) and `prep_stats.json`.
+1. **Load** 1,130,017 rows and rename `rotten_tomatoes_link` → `movie_id`, `review_content` → `text`, `review_type` → `label` (Fresh = 1, Rotten = 0).
+2. **Clean:** drop rows with missing fields (1,064,211 remain), strip `[Full review in …]` tags, and collapse whitespace. Drop reviews with fewer than 4 tokens (Part I tokenizer). 1,058,330 rows remain.
+3. **Deduplicate** on normalised text (lowercase alphanumerics): keep one copy of each repeated text, and drop every copy of texts whose copies have conflicting labels (700 rows). 944,430 rows remain.
+4. **WikiText overlap filter:** drop a review if at least 50% of its 8-grams occur in WikiText-2 train, or if it shares any 13-gram with it. 497 reviews share at least one 8-gram; **64** Rotten Tomato Reviews meet this rule and are removed (listed in `data/prepared/overlap_removed.csv`).
+5. **Split by movie:** 80 / 10 / 10% of movies go to train / valid / test (seed 42). No movie appears in two splits.
+6. **Cap and balance:** keep at most 10 reviews per movie, then sample balanced Fresh/Rotten sets of 20,000 / 2,500 / 2,500 reviews from 10,831 / 1,347 / 1,342 movies (sampling seeds 42 / 43 / 44).
+7. **Assert** that no movie and no normalised text is shared across splits, then write `data/prepared/rt_{train,valid,test}.csv` and `prep_stats.json`.
 
-> **Reproducibility note:** the reported splits were built locally against a WikiText-2 `train.txt` with 17,556 non-empty lines and 2,031,623 tokens. That isn't the Part I file, which gives 2,124,061 tokens including `<s>`/`</s>`. Most likely the local copy had its `= Heading =` lines removed. Only step 4 (the overlap filter) reads this file, so a re-run against Part I's `data/processed/train.txt` could flag a slightly different set of reviews. Because sampling depends on which rows survive, that would change the splits. To reproduce the reported splits exactly, compare `overlap_flagged_removed` in `prep_stats.json` with 64.
+The overlap filter reads `data/processed/train.txt` from Part I (23,767 non-empty lines, 2,076,521 tokens without `<s>`/`</s>`). The committed run of this notebook reproduces the splits used for the reported results (64 reviews removed; `<unk>` rates 8.53 / 8.49 / 8.61%, identical to Part III Cell 2).
 
-Part III then does the following:
-
-1. Reviews are tokenized with the Part I tokenizer and vocabulary (loaded from `results/lstm.pt`) and encoded as `<s>` + tokens, with no `</s>`. They're truncated to 32 tokens and right-padded. Reviews with no tokens are dropped (none were). OOV rate is about 8.5%, and 25% of reviews are truncated.
+Part III then encodes each review as `<s>` + tokens (no `</s>`), using the Part I tokenizer and vocabulary loaded from `results/lstm.pt`. Reviews are truncated to 32 tokens and right-padded. About 8.5% of review tokens are `<unk>`, and 25% of reviews are truncated.
 
 ## How to run
 
-Run the notebooks in order in the same Google Drive folder. Each one mounts Drive and uses `/content/drive/MyDrive/dsa4213/ind_assignment` as its working directory; change `PROJECT_DIR` in Cell 0/1 if yours differs. Choose a T4 runtime, then **Run all**.
+Every notebook starts with the same **Cell 0**. On Colab it clones this repo to `/content/DSA4213_Assignment` and works there; locally it uses the repo root. Choose a T4 runtime, then **Run all**. Each notebook is self-contained: missing inputs are rebuilt or downloaded at the start, so the notebooks can run in separate Colab runtimes.
 
-| Step | Notebook | Needs |
-|---|---|---|
-| Part I | `Part1_models_Colab.ipynb` | internet (downloads WikiText-2) |
-| Part III data | `Part3_data_prep_RottenTomatoes.ipynb` (CPU, any order after Part I) | `data/raw/rotten_tomatoes_critic_reviews.csv` (Kaggle), `data/processed/train.txt` |
-| Part II | `Part2_embeddings_Colab.ipynb` | `data/processed/` from Part I; internet (GloVe) |
-| Part III | `Part3_downstream_Colab.ipynb` | `data/prepared/`, `results/lstm.pt` (Part I), `results/part2/lstm_*.pt` (Part II) |
+| Step | Notebook | What it fetches or builds automatically | Writes |
+|---|---|---|---|
+| 1 | `Part1_models_Colab.ipynb` | WikiText-2 | `results/` (Part I tables, curves, generations, `lstm.pt`) |
+| 2 | `Part2_embeddings_Colab.ipynb` | WikiText-2, GloVe, gensim | `results/part2/` |
+| 3 | `Part3_data_prep_RottenTomatoes.ipynb` | WikiText-2, Kaggle CSV (`kagglehub`) | `data/prepared/` |
+| 4 | `Part3_downstream_Colab.ipynb` | Cell 0b runs step 3 if `data/prepared/` is missing, and downloads the trained checkpoints from the GitHub release | `results/part3/` |
 
-Part II is resumable: finished (setting, seed) runs are skipped and an interrupted run continues from its last epoch, so after a Colab disconnect you just re-run Cell 8.
+**Part III without retraining.** The LSTM checkpoints used in Part III (`results/lstm.pt`, `results/part2/lstm_{setting}_s{seed}.pt` and `result_{setting}_s{seed}.json`) are attached to GitHub release **v1.0** as `checkpoints.zip`. `ensure_checkpoints()` in Part III Cell 0b downloads and unzips it, so Part III runs end to end without training any language model.
 
-### Where each table and figure comes from
+**Resuming Part II.** Finished (setting, seed) runs are skipped and an interrupted run continues from its last epoch, so after a Colab disconnect just re-run Cell 8.
 
-| Report item | Notebook → cell | File (under `results/`) |
-|---|---|---|
-| n-gram add-k / λ tuning + test PPL | Part I → Cell 4 | `ngram_tuning.json`, `result_trigram.json` |
-| Part I perplexity / cost table | Part I → Cell 10 | `metrics_part1.csv` (+ `result_{rnn,lstm,transformer}.json`) |
-| Part I loss curves | Part I → Cell 11 | `loss_curves_part1.png` |
-| Part I generations (trigram + 3 neural LMs) | Part I → Cell 12 | `generations.md` |
-| Skip-gram training cost + nearest neighbours | Part II → Cell 4 | `part2/own_skipgram_cost.json` |
-| GloVe vocabulary coverage | Part II → Cell 5 | `part2/coverage_glove-wiki-gigaword-100.json` |
-| Part II per-seed, summary and paired tables | Part II → Cell 9 | `part2/runs_part2.csv`, `part2/summary_part2.csv`, `part2/paired_part2.csv` |
-| Part II validation curves + test PPL figure | Part II → Cell 10 | `part2/valid_curves_part2.png` |
-| Part II generations | Part II → Cell 11 | `part2/generations_part2.md` |
-| Rotten Tomatoes cleaning / dedup / overlap / split statistics | Part III data prep → Cells 3–7 | `data/prepared/prep_stats.json`, `data/prepared/overlap_removed.csv` |
-| Part III tokenization stats (OOV, truncation) | Part III → Cell 2 | `part3/tokenization_stats.csv` |
-| Part III downstream table, LM-vs-downstream ranking, TF-IDF reference | Part III → Cell 5 | `part3/results_embeddings_summary.csv`, `part3/results_embeddings_per_seed.csv` |
-| Part III error analysis + McNemar test | Part III → Cell 6 | `part3/errors_by_tag_*.csv`, `part3/error_table_*.csv` |
+## Known discrepancies
 
-Checkpoints, Skip-gram models and feature matrices (`*.pt`, `*.model`, `*.npy`) are not committed.
+The training notebooks were not all re-run after their final edits, because of Colab compute limits. These cases are listed so every reported number can be traced to its source.
 
-### Expected runtime (Colab T4)
+1. **Two Part II runs.**
 
-| Step | Time |
-|---|---|
-| Part I: n-gram fit | 20 s (CPU); the add-k × λ grid search on the dev set adds several minutes (not timed) |
-| Part I: RNN / LSTM / Transformer, 20 epochs each | 446 s / 474 s / 575 s (≈ 25 min total) |
-| Part II: Skip-gram | 63 s on 2 CPU cores |
-| Part II: GloVe download + load | 82 s |
-| Part II: 9 LSTM runs (3 settings × 3 seeds, 20 epochs, ~21 s/epoch) | 406–440 s each, ≈ 64 min total |
-| Part III data prep (CPU) | not recorded |
-| Part III | not recorded; feature extraction and logistic regression take minutes, not hours |
+   | | Part II notebook outputs (Cells 8–11; report Part II) | Checkpoints in release v1.0 (report Part III) |
+   |---|---|---|
+   | LSTM dropout | 0.0 | 0.3 |
+   | Test PPL, random / own_sg / public (mean of 3 seeds) | 168.57 / 153.42 / 146.16 | 141.2 / 141.7 / 137.5 |
+   | Early stopping | yes, after 9–14 epochs | see `epochs_run` in `result_*.json` |
 
-CPU-only runtimes weren't measured. Neural training is much slower on CPU.
+   Everything else is identical: architecture, vocabulary, data, Skip-gram and GloVe matrices, seeds 42/43/44, and training procedure. Part III features, the `lm_test_ppl` column in Part III Cell 5 and the LM-vs-downstream ranking all come from the **dropout 0.3 checkpoints**. To reproduce them, set `dropout=0.3` in `LSTM_CFG` (Part II Cell 7) before running Cell 8.
+
+2. **Unused files in `checkpoints.zip`.** The release may also contain `lstm_public_ft_s*.pt` / `result_public_ft_s*.json` (an exploratory fine-tuned GloVe setting whose training code is not included) and `lstm_ random_s4{2,3}.pt` / `result_ random_s4{2,3}.json` (leftovers with a space in the name). No notebook reads them, and no reported number comes from them.
+
+3. **Notebook text.** Part I's markdown says Cell 0 mounts Google Drive; it actually clones the repo, as described above.
 
 ## Configurations
 
-### Part I — n-gram
-- Trigram (orders 1–3) over the same token stream and 30k vocabulary as the neural models. `<pad>` is excluded from |V| (30,001).
-- Add-k smoothing per order, then linear interpolation P = λ₁P₁ + λ₂P₂ + λ₃P₃.
-- Tuned jointly on the validation set:
-  - add-k ∈ {1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2};
-  - for each k, (λ₁, λ₂, λ₃) searched over a simplex grid in steps of 0.05 (all λ > 0, summing to 1).
-- Best: k = 3e-5, λ = (0.25, 0.55, 0.20). Dev PPL 259.73, test PPL 246.90 (7.95 bits/token).
+### Part I: n-gram
+- A trigram (orders 1–3) over the same token stream and vocabulary as the neural models. |V| = 30,001, excluding `<pad>`.
+- Each order uses add-k smoothing, and the orders are combined by linear interpolation λ₁P₁ + λ₂P₂ + λ₃P₃.
+- k and λ are tuned jointly on the validation set:
+  - k ∈ {1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2};
+  - λ is searched on a simplex grid in steps of 0.05.
+- Best: k = 3e-5, λ = (0.25, 0.55, 0.20). Validation PPL 259.73, **test PPL 246.90** (7.95 bits/token).
+- Reported fit time (8.65 s) is the counting step only; the tuning grid is not timed. The size column counts stored n-gram entries (2,009,444), not parameters.
 
-### Part I — neural LMs (shared `BASE_CFG`, Cell 6)
+### Part I: neural LMs (`BASE_CFG`, Cell 6)
 
 | Setting | Value |
 |---|---|
-| Optimizer | Adam, LR 1e-3 |
-| Batch size | 64 |
-| Max epochs | 20, early stopping with patience 2 on validation PPL (best checkpoint restored). All three models ran the full 20 epochs. |
-| Gradient clipping | max-norm 1.0 |
-| Context window | 32 tokens |
-| Embedding dim | 100 (the same as Part II / GloVe-100) |
-| Hidden dim | 256 (RNN/LSTM hidden size; Transformer feed-forward size) |
+| Optimizer | Adam, learning rate 1e-3, batch 64, gradient clipping 1.0 |
+| Budget | 20 epochs max, early-stopping patience 2 on validation PPL. All three models used the full 20 epochs, with validation loss still falling. |
+| Context | 32-token windows; the hidden state is not carried across windows |
+| Dimensions | embedding 100, hidden 256 (Transformer: feed-forward 256) |
 | Dropout | 0.3 on embeddings and outputs (Transformer: also inside its layers) |
-| Output layer | tied to the input embedding; RNN/LSTM project hidden 256 → 100 first |
+| Output layer | tied to the input embedding (RNN/LSTM project 256 → 100 first) |
 | RNN / LSTM | 1 layer |
-| Transformer | decoder-only (causal self-attention), 2 layers, 4 heads, sinusoidal positions |
+| Transformer | decoder-only, causal mask, 2 layers, 4 heads, post-LN, sinusoidal positions |
 | Parameters | RNN 3.15M, LSTM 3.42M, Transformer 3.21M |
-| Loss | cross-entropy, reported in bits/token; PPL = 2^CE |
-| Precision | fp16 autocast + GradScaler on GPU |
+| Loss | cross-entropy in bits/token, PPL = 2^CE |
+| Timing | training time = sum of epoch times, synchronised, excluding validation. Inference throughput = tokens/s over the test set (batch 64, fp16, T4). The n-gram's throughput is measured in pure Python on CPU, so it is not hardware-comparable. |
 
 ### Generation (Part I Cell 12, Part II Cell 11)
-- Temperature 0.8, top-k 40, at most 30 new tokens, context 32 tokens, decoding seed 123. `<pad>` is never sampled, and generation stops at `</s>`.
-- The same five prompts in both parts. Part I also samples from the trigram, using the same temperature and top-k.
+- Temperature 0.8, top-k 40, at most 30 new tokens, 32-token context, decoding seed 123.
+- `<pad>` is never sampled. Generation stops early if `</s>` is sampled, so lengths can differ.
+- The same five prompts are used in both parts. Part I also samples from the trigram with the same settings.
 
-### Part II — embedding ablation (LSTM)
+### Part II: embedding ablation (LSTM)
 
-| Setting | Embedding init | Trainable? |
+| Setting | Input embedding | Trainable? |
 |---|---|---|
-| `random` | PyTorch default | yes |
+| `random` | PyTorch default init | yes |
 | `own_sg` | own Skip-gram, trained on the WikiText-2 **train split only** | frozen |
 | `public` | GloVe `glove-wiki-gigaword-100` | frozen |
 
-- Embedding dim 100, to match GloVe. The `random` baseline is retrained in Part II, not reused from Part I: the Part II LSTM has an **untied** output layer, so freezing the input table never freezes the output layer, and it sets `padding_idx`. Otherwise it matches the Part I LSTM.
-- LSTM (`LSTM_CFG`, Cell 7): 1 layer, hidden 256, dropout 0.3 on embeddings and outputs, projection 256→100 before an untied output layer, `padding_idx` = `<pad>`. Adam LR 1e-3, batch 64, window 32, max 20 epochs, early-stopping patience 2, gradient clipping 1.0, AMP. Only trainable parameters go to the optimizer.
-- Skip-gram (`SG_CFG`, Cell 2): gensim `Word2Vec`, `sg=1`, vector_size 100, window 5, negative 5, min_count 1, epochs 5, workers 1, seed 42. It's trained on the `<unk>`-mapped training stream, so every vocabulary entry gets a vector.
-- GloVe coverage: 96.39% of vocabulary types (28,914 / 29,998) and 99.66% of in-vocabulary training tokens.
-- OOV policy (Cell 6): `<pad>` → zeros; `<unk>` → mean of the found vectors; other missing words (including `<s>` and `</s>` for GloVe) → N(0, σ²), where σ is the std of the found vectors (NumPy RNG seed 0).
-- Stability: 3 seeds per setting. The seed fixes LSTM init and batch order, so settings are also compared paired by seed.
+- **LSTM (`LSTM_CFG`, Cell 7):** the same as the Part I LSTM, except for:
+  - an **untied** output layer, so freezing the input table never freezes the output layer (this is also why the Part I LSTM cannot be reused as the `random` setting);
+  - `padding_idx` = `<pad>`;
+  - dropout 0.0 in the committed notebook (see [Known discrepancies](#known-discrepancies)).
 
-### Part III — downstream sentiment classification
-- Task: binary sentiment on Rotten Tomatoes critic reviews (Fresh = 1, Rotten = 0).
-- Representations: frozen LM hidden states (256-d) from the Part II LSTMs (3 settings × 3 seeds) and the Part I LSTM. Two kinds of pooling are used: **last** (state at the final real token) and **mean** (average over real tokens, including `<s>`, excluding padding). The main table uses mean pooling for `random` / `own_sg` / `public`.
-- Classifier: `StandardScaler` + scikit-learn `LogisticRegression` (`max_iter=3000`). C is chosen from {1e-4, 1e-3, 1e-2, 0.1, 1, 10, 100} by validation macro-F1, then evaluated once on the test set. Metrics are accuracy and macro-F1.
-- References: majority class, and TF-IDF (1–2-grams, `min_df=2`, same tokenizer) + logistic regression with the same C search.
-- Error analysis: error rates on tagged subsets (negation, contrast, truncated, UNK-heavy, very short), plus McNemar's exact test between `random` and `public` for each LM seed.
+  Embedding dimension 100 (matches GloVe), hidden 256, Adam 1e-3, batch 64, window 32, max 20 epochs, patience 2, clipping 1.0, AMP. Only trainable parameters go to the optimizer: 6.42M for `random`, 3.42M for the frozen settings.
+- **Skip-gram (`SG_CFG`, Cell 2):** gensim `Word2Vec`, `sg=1`, vector size 100, window 5, negative 5, min_count 1, 5 epochs, `workers=1`, seed 42. It is trained on the `<unk>`-mapped training stream. **Cost: 60.1 s on 2 CPU cores**, reported separately from LM training.
+- **GloVe coverage:** 96.39% of vocabulary types (28,914 / 29,998), and 99.66% of in-vocabulary training tokens.
+- **OOV initialisation:**
+  - `<pad>` → zeros;
+  - `<unk>` → mean of the found vectors;
+  - other missing words, including `<s>`/`</s>` for GloVe → N(0, σ²), where σ is the std of the found vectors (NumPy seed 0).
+
+  The whole table is frozen.
+- **Stability:** 3 seeds per setting (42, 43, 44). A seed fixes both LSTM initialisation and batch order, so settings are also compared paired by seed.
+
+### Part III: downstream sentiment classification
+- **Task:** binary sentiment (Fresh / Rotten), 20,000 / 2,500 / 2,500 balanced reviews.
+- **Representations:** frozen 256-d LSTM hidden states from the Part II LSTMs (3 settings × 3 seeds). **Mean pooling** averages over real tokens (including `<s>`, excluding padding) and is used in the main table. **Last pooling** takes the state at the final real token; it is compared with mean pooling only in the validation check (Cell 4, C = 1), where mean pooling wins for every setting.
+  - Cell 3 checks that the hidden states reproduce the model's logits and that padding does not change them. It also extracts Part I LSTM features as a sanity check; these are not in the report.
+- **Classifier:** `StandardScaler` + `LogisticRegression` (`max_iter=3000`) for every representation. C is chosen from {1e-4, 1e-3, 1e-2, 0.1, 1, 10, 100} by validation macro-F1, then the test set is evaluated **once**. Metrics: accuracy and macro-F1.
+- **References:** majority class (0.500), and TF-IDF 1–2-grams (`min_df=2`, same tokenizer) + logistic regression with the same C search (accuracy 0.759).
+- **Error analysis (Cell 6):** error rates on tagged subsets (negation, contrast, truncated = at least 32 review tokens, `<unk>`-heavy = at least 15% `<unk>`, very short = at most 6 tokens), plus McNemar's exact test between `random` and `public` for each LM seed.
+
+## Where each result comes from
+
+| Report item | Notebook → cell | Output file |
+|---|---|---|
+| n-gram tuning + test PPL | Part I → 4 | `results/ngram_tuning.json`, `result_trigram.json` |
+| Part I quality / cost table | Part I → 10 | `results/metrics_part1.csv` |
+| Part I loss curves | Part I → 11 | `results/loss_curves_part1.png` |
+| Part I generations | Part I → 12 | `results/generations.md` |
+| Skip-gram cost + nearest neighbours | Part II → 4 | `results/part2/own_skipgram_cost.json` |
+| GloVe coverage | Part II → 5 | `results/part2/coverage_glove-wiki-gigaword-100.json` |
+| Part II tables | Part II → 9 | `results/part2/runs_part2.csv`, `summary_part2.csv`, `paired_part2.csv` |
+| Part II curves + test-PPL figure | Part II → 10 | `results/part2/valid_curves_part2.png` |
+| Part II generations | Part II → 11 | `results/part2/generations_part2.md` |
+| RT cleaning / split statistics | RT prep → 3–7 | `data/prepared/prep_stats.json`, `overlap_removed.csv` |
+| Part III `<unk>` rate / truncation | Part III → 2 | `results/part3/tokenization_stats.csv` |
+| Last vs mean pooling (validation) | Part III → 4 | printed in the notebook |
+| Part III main table, ranking, TF-IDF | Part III → 5 | `results/part3/results_embeddings_summary.csv`, `results_embeddings_per_seed.csv` |
+| Part III LM test PPL (dropout 0.3 checkpoints) | release v1.0 | `results/part2/result_{setting}_s{seed}.json` |
+| Part III error analysis + McNemar | Part III → 6 | `results/part3/errors_by_tag_*.csv`, `error_table_*.csv` |
+
+## Runtime (Colab T4, from the committed notebook outputs)
+
+| Step | Time |
+|---|---|
+| Part I trigram fit | 8.65 s (CPU), plus a few minutes of untimed tuning |
+| Part I RNN / LSTM / Transformer (20 epochs each) | 404 s / 427 s / 495 s |
+| Part II Skip-gram | 60.1 s (2 CPU cores) |
+| Part II GloVe download + load | about 65 s |
+| Part II one LSTM run (dropout 0.0) | 197 ± 13 s (random), 264 ± 23 s (own_sg), 258 ± 20 s (public) |
+| Rotten Tomatoes preprocessing | a few minutes on CPU (not timed) |
+| Part III extraction + classifiers | a few minutes (not timed) |
 
 ## Random seeds
 
 | What | Seed |
 |---|---|
-| Part I neural LM training (init + shuffling) | 42 |
-| Part II LM runs (init + batch order) | 42, 43, 44 (mean ± std reported) |
-| Part II Skip-gram | 42 (`workers=1` keeps it deterministic) |
-| Part II OOV vector initialisation | 0 |
-| Generation / decoding (Parts I, II) | 123 |
-| Part III global seed (`set_seed`) | 42; features come from the Part II seed-42/43/44 LMs |
-| Rotten Tomatoes movie → split assignment | 42 |
-| Rotten Tomatoes per-split sampling (cap + balance) | 42 / 43 / 44 for train / valid / test |
+| Part I neural LMs (init + shuffling) | 42 |
+| Part II LM runs (init + batch order) | 42, 43, 44 |
+| Skip-gram | 42 (`workers=1`) |
+| OOV vector initialisation | 0 |
+| Generation | 123 |
+| Rotten Tomatoes movie split / per-split sampling | 42 / 42, 43, 44 |
+| Part III global seed (`set_seed`) | 42 |
 
-`set_seed()` seeds `random`, `numpy`, `torch` and CUDA. GPU kernels are not forced to be deterministic, so re-runs on a T4 can differ slightly in the last decimal places.
+`set_seed()` seeds `random`, `numpy`, `torch` and CUDA. GPU kernels are not forced to be deterministic, so re-runs can differ slightly in the last decimals.
 
 ## Repository layout
 
 ```
-Part1_models_Colab.ipynb       Part I   (outputs kept so results are visible)
-Part2_embeddings_Colab.ipynb   Part II  (outputs kept)
-Part3_data_prep_RottenTomatoes.ipynb   Rotten Tomatoes cleaning + splits (outputs kept)
-Part3_downstream_Colab.ipynb   Part III (outputs kept)
-data/prepare_data.py           WikiText-2 download → data/processed/
-                               the reported results come from the notebooks above
+Part1_models_Colab.ipynb                Part I (outputs kept)
+Part2_embeddings_Colab.ipynb            Part II (outputs kept; see Known discrepancies)
+Part3_data_prep_RottenTomatoes.ipynb    Rotten Tomatoes cleaning + splits (outputs kept)
+Part3_downstream_Colab.ipynb            Part III (outputs kept)
+data/prepare_data.py                    WikiText-2 download -> data/processed/
 requirements.txt
+README.md
 ```
 
 ## Attribution
 
-- The n-gram LM, tokenizer and evaluation code are adapted from the DSA4213 Lecture 1 notebook. The RNN, LSTM and Transformer LMs are adapted from the DSA4213 Lecture 3 notebook and reused in Parts II–III. Each adapted file or notebook says so at the top.
-- Datasets: WikiText-2 (Merity et al., 2016; CC BY-SA 3.0); Rotten Tomatoes critic reviews (Kaggle, see above). Pretrained embeddings: GloVe 6B (Pennington et al., 2014), via gensim-data. Libraries: PyTorch, gensim, scikit-learn, Hugging Face `datasets`.
-- AI coding assistance was used; see the report for details.
+- The tokenizer, n-gram LM and evaluation code are adapted from the DSA4213 Lecture 1 notebook. The RNN and LSTM LMs are adapted from the DSA4213 Lecture 3 notebook and reused in Parts II–III.
+- Datasets: WikiText-2 (Merity et al., 2016; CC BY-SA 3.0) and Rotten Tomatoes critic reviews (Kaggle, linked above, not redistributed).
+- Pretrained embeddings: GloVe 6B (Pennington et al., 2014), via gensim-data.
+- Libraries: PyTorch, gensim, scikit-learn, scipy, Hugging Face `datasets`, kagglehub, pandas, matplotlib.
+- AI coding assistance was used; the report describes how.
